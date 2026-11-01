@@ -16,12 +16,11 @@ data class AppConfig(
     val binHours: Long,
     val pageSize: Int,
     val maxIssues: Int = 0,
-    val sortOrder: String = "ASC",
-    val detailConcurrency: Int = 4
+    val sortOrder: String = "ASC"
 ) {
     override fun toString(): String =
         "AppConfig(baseUrl=$baseUrl, project=$project, user=$user, token=<redacted>, zone=$zone, output=$output, " +
-            "binHours=$binHours, pageSize=$pageSize, maxIssues=$maxIssues, sortOrder=$sortOrder, detailConcurrency=$detailConcurrency)"
+            "binHours=$binHours, pageSize=$pageSize, maxIssues=$maxIssues, sortOrder=$sortOrder)"
 
     companion object {
         /** Loads and validates a distribution configuration file. Environment credentials take precedence. */
@@ -46,16 +45,13 @@ data class AppConfig(
             require(maxIssues >= 0) { "jira.maxIssues must be nonnegative (0 means all issues)" }
             val sortOrder = value("jira.sortOrder").ifBlank { "ASC" }.uppercase()
             require(sortOrder in setOf("ASC", "DESC")) { "jira.sortOrder must be ASC or DESC" }
-            val detailConcurrency = value("jira.detailConcurrency").ifBlank { "4" }.toIntOrNull()
-                ?: error("jira.detailConcurrency must be an integer")
-            require(detailConcurrency in 1..16) { "jira.detailConcurrency must be between 1 and 16" }
             val output = Path.of(value("report.output").ifBlank { "report" })
             return AppConfig(
                 baseUrl, project,
                 environment["JIRA_USER"]?.takeIf(String::isNotBlank) ?: value("jira.user"),
                 environment["JIRA_TOKEN"]?.takeIf(String::isNotBlank) ?: value("jira.token"),
                 ZoneId.of(value("report.zone").ifBlank { "UTC" }), output, binHours, pageSize,
-                maxIssues, sortOrder, detailConcurrency
+                maxIssues, sortOrder
             )
         }
     }

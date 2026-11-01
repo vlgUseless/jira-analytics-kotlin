@@ -24,6 +24,9 @@ import java.util.concurrent.Executors
 /** Fetches Jira issues through the Server/Data Center REST API. */
 class JiraClient(private val config: AppConfig, private val http: HttpClient = HttpClient.newBuilder()
     .connectTimeout(Duration.ofSeconds(20)).build()) {
+    private companion object {
+        const val MAX_PARALLEL_DETAILS = 4
+    }
 
     /** Reads every search page, including full changelogs for closed issues. */
     fun fetchIssues(): List<Issue> {
@@ -33,7 +36,7 @@ class JiraClient(private val config: AppConfig, private val http: HttpClient = H
         var lastId: Long? = null
         var initialTotal: Int? = null
         val fullProject = config.maxIssues == 0
-        val executor = Executors.newFixedThreadPool(config.detailConcurrency)
+        val executor = Executors.newFixedThreadPool(minOf(MAX_PARALLEL_DETAILS, config.pageSize))
         val completed = ExecutorCompletionService<Issue>(executor)
         try {
             while (true) {
