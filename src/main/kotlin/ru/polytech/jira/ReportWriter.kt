@@ -12,14 +12,14 @@ class ReportWriter {
     fun write(report: Report, project: String, output: Path, scopeNote: String? = null): Path {
         Files.createDirectories(output)
         val sections = buildString {
-            append(section("1. Время от создания до закрытия", "Сколько календарных дней прошло от создания задачи до даты её разрешения (resolutiondate). Учитываются только закрытые задачи.", histogram(report.openDuration, "Длительность, дни", 24)))
-            append("<section><h2>2. Время по состояниям</h2><p>Сколько дней закрытая задача провела в каждом статусе до даты разрешения. Переходы берутся из истории Jira; повторные посещения одного статуса суммируются. Одна задача может входить в несколько диаграмм.</p>")
+            append(section("1. Время от создания до закрытия", "Сколько времени прошло от создания задачи до даты её разрешения (resolutiondate). Учитываются только закрытые задачи.", histogram(report.openDuration, "Длительность", 24)))
+            append("<section><h2>2. Время по состояниям</h2><p>Сколько времени закрытая задача провела в каждом статусе до даты разрешения. Переходы берутся из истории Jira; повторные посещения одного статуса суммируются. Одна задача может входить в несколько диаграмм.</p>")
             if (report.statusDurations.isEmpty()) append("<p>Нет данных.</p>")
             report.statusDurations.forEach { (status, bins) ->
                 val count = bins.sumOf(HistogramBin::count)
                 append("<h3>${escape(status)} — $count ${taskWord(count)}</h3>")
                 if (count <= 1) append("<p>Для этого статуса в выборке слишком мало задач, поэтому форма распределения не показательная.</p>")
-                append(histogram(bins, "Время в статусе, дни", 24))
+                append(histogram(bins, "Время в статусе", 24))
             }
             append("</section>")
             append(section("3. Задачи по дням", "«Создано» — по дате created, «закрыто» — по дате resolutiondate. Дневные события и накопительные итоги показаны на отдельных шкалах.", daily(report.daily)))
@@ -28,7 +28,7 @@ class ReportWriter {
             val worklogContent = "<p>Суммарное поле timeSpent одной закрытой задачи. С записанным временем: $logged; без него: ${report.unloggedClosedCount}. Время отдельных пользователей здесь не разделяется.</p>" +
                 (if (logged == 1) "<p>Запись времени есть только у одной задачи, поэтому форма распределения не показательна.</p>" else "") +
                 if (logged == 0) "<p>Для этой выборки Jira не вернула положительного залогированного времени. Распределение по времени построить не из чего.</p>"
-                else histogram(report.worklogDuration, "Залогировано, часы", 1)
+                else histogram(report.worklogDuration, "Залогировано", 1)
             append(section("5. Залогированное время", "Распределение закрытых задач с положительным залогированным временем.", worklogContent))
             append(section("6. Степень серьёзности", "Количество всех полученных задач по полю Priority Jira. Стандартные приоритеты показаны от наиболее серьёзного к наименее серьёзному.", priorities(report.priorities)))
         }
@@ -53,13 +53,18 @@ class ReportWriter {
     private fun section(title: String, description: String, content: String) =
         "<section><h2>${escape(title)}</h2><p>${escape(description)}</p>$content</section>"
 
-    private fun histogram(bins: List<HistogramBin>, xLabel: String, unitHours: Long): String {
+    private fun histogram(bins: List<HistogramBin>, xLabel: String, preferredUnitHours: Long): String {
         if (bins.isEmpty()) return "<p>Нет данных.</p>"
-        val width = 1000.0; val height = 340.0; val left = 70.0; val right = 30.0; val top = 20.0; val bottom = 55.0
+        val width = 1000.0; val height = 390.0; val left = 70.0; val right = 30.0; val top = 20.0; val bottom = 105.0
         val plotWidth = width - left - right; val plotHeight = height - top - bottom
         val ceiling = max(1, bins.maxOf(HistogramBin::count))
         val barWidth = plotWidth / bins.size
+        val unitHours = if (preferredUnitHours == 24L && (bins.first().toHours - bins.first().fromHours) % 24 == 0L) 24L else 1L
+        val unitName = if (unitHours == 24L) "дни" else "часы"
         return buildString {
+            val regular = bins.first()
+            val binSize = (regular.toHours - regular.fromHours) / unitHours
+            append("<p>Ширина обычного интервала: $binSize ${if (unitHours == 24L) "дн." else "ч."} Числа на оси — границы интервалов.</p>")
             append(svgStart(width, height, "Гистограмма по времени"))
             append(axes(left, top, plotWidth, plotHeight, ceiling, "Количество задач"))
             bins.forEachIndexed { index, bin ->
@@ -68,16 +73,15 @@ class ReportWriter {
                 val to = bin.toHours / unitHours
                 val unit = if (unitHours == 24L) "д" else "ч"
                 val range = if (bin.overflow) "≥$from $unit" else "$from–$to $unit"
-                append("<rect x='${f(left + index * barWidth + 1)}' y='${f(top + plotHeight - barHeight)}' width='${f(max(1.0, barWidth - 2))}' height='${f(barHeight)}' fill='#3273b4'><title>$range: ${bin.count} ${taskWord(bin.count)}</title></rect>")
-                if (index % max(1, bins.size / 8) == 0 || index == bins.lastIndex) {
-                    append(tick(left + index * barWidth, top + plotHeight + 18, if (bin.overflow) "≥$from" else "$from"))
-                }
+                append("<rect x='${f(left + index * barWidth + 1)}' y='${f(top + plotHeight - barHeight)}' width='${f(max(1.0, barWidth - 2))}' height='${f(barHeight)}' fill='${if (bin.overflow) "#d97706" else "#3273b4"}'><title>$range: ${bin.count} ${taskWord(bin.count)}</title></rect>")
+                append(histogramBoundary(left + index * barWidth, top + plotHeight, if (bin.overflow) "≥$from" else "$from"))
             }
-            append(tick(width / 2, height - 8, xLabel, "label"))
+            if (!bins.last().overflow) append(histogramBoundary(left + plotWidth, top + plotHeight, "${bins.last().toHours / unitHours}"))
+            append(tick(width / 2, height - 8, "$xLabel, $unitName", "label"))
             append("</svg>")
             bins.lastOrNull()?.takeIf(HistogramBin::overflow)?.let { overflow ->
                 val unit = if (unitHours == 24L) "дней" else "часов"
-                append("<p>Последний столбец объединяет все задачи с длительностью от ${overflow.fromHours / unitHours} $unit.</p>")
+                append("<p>Последний столбец объединяет все задачи с длительностью от ${overflow.fromHours / unitHours} $unit. Граница выбрана по 95-му процентилю длительностей и округлена до ширины интервала.</p>")
             }
         }
     }
@@ -186,6 +190,11 @@ class ReportWriter {
 
     private fun tick(x: Double, y: Double, value: String, css: String = "tick", anchor: String = "middle") =
         "<text class='$css' x='${f(x)}' y='${f(y)}' text-anchor='$anchor'>${escape(value)}</text>"
+    private fun histogramBoundary(x: Double, baseline: Double, label: String): String {
+        val y = baseline + 16
+        return "<line class='axis' x1='${f(x)}' y1='${f(baseline)}' x2='${f(x)}' y2='${f(baseline + 6)}'/>" +
+            "<text class='tick' x='${f(x)}' y='${f(y)}' text-anchor='end' transform='rotate(-55 ${f(x)} ${f(y)})'>${escape(label)}</text>"
+    }
     private fun f(value: Double) = "%.2f".format(java.util.Locale.ROOT, value)
     private fun taskWord(count: Int) = when {
         count % 100 in 11..14 -> "задач"

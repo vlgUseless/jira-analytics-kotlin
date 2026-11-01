@@ -45,4 +45,20 @@ class ReportWriterTest {
         assertTrue(priorities.indexOf(">Blocker<") < priorities.indexOf(">Major<"))
         assertTrue(priorities.indexOf(">Major<") < priorities.indexOf(">Minor<"))
     }
+
+    @Test fun `histogram labels every interval boundary in the displayed unit`() {
+        val report = Analyzer(ZoneId.of("UTC"), 24).analyze(emptyList()).copy(
+            openDuration = listOf(
+                HistogramBin(0, 72, 2), HistogramBin(72, 144, 3),
+                HistogramBin(144, 216, 1), HistogramBin(216, 216, 1, overflow = true)
+            )
+        )
+        val html = Files.readString(ReportWriter().write(report, "T", directory))
+        val chart = html.substringAfter("1. Время от создания до закрытия").substringBefore("</svg>")
+        assertTrue(chart.contains("Ширина обычного интервала: 3 дн."))
+        for (boundary in listOf("0", "3", "6", "≥9")) {
+            assertTrue(chart.contains(">$boundary</text>"), "Missing boundary $boundary")
+        }
+        assertEquals(4, Regex("rotate\\(-55").findAll(chart).count())
+    }
 }
