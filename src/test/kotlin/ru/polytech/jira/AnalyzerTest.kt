@@ -66,8 +66,17 @@ class AnalyzerTest {
             issue(spent = 7200, priority = "High"),
             issue("TEST-2", spent = 0, priority = "Low")
         ))
-        assertEquals(2, report.worklogDuration.sumOf(HistogramBin::count))
+        assertEquals(1, report.worklogDuration.sumOf(HistogramBin::count))
+        assertEquals(1, report.unloggedClosedCount)
         assertEquals(mapOf("High" to 1, "Low" to 1), report.priorities)
+    }
+
+    @Test fun `long duration is kept in a separate overflow interval`() {
+        val durations = List(20) { 3600L } + 3600L * 1000
+        val bins = analyzer.histogram(durations)
+        assertEquals(20, bins.dropLast(1).sumOf(HistogramBin::count))
+        assertEquals(1, bins.last().count)
+        assertTrue(bins.last().overflow)
     }
 
     @Test fun `top users are limited to thirty`() {

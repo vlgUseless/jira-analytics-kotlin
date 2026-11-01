@@ -1,8 +1,6 @@
 package ru.polytech.jira
 
 import java.time.Duration
-import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.ceil
 
@@ -54,7 +52,8 @@ class Analyzer(private val zone: ZoneId, private val minimumBinHours: Long) {
             histogram(closed.map { Duration.between(it.created, it.resolved!!).seconds }),
             statusTimes.toSortedMap().mapValues { histogram(it.value) },
             days, topUsers,
-            histogram(closed.map { it.timeSpentSeconds.coerceAtLeast(0) }),
+            histogram(closed.map { it.timeSpentSeconds }.filter { it > 0 }, 1),
+            closed.count { it.timeSpentSeconds <= 0 },
             issues.groupingBy(Issue::priority).eachCount().toSortedMap()
         )
     }
@@ -76,14 +75,24 @@ class Analyzer(private val zone: ZoneId, private val minimumBinHours: Long) {
         return result
     }
 
-    /** Groups nonnegative durations into bounded, time-labelled bins. */
-    fun histogram(seconds: List<Long>): List<HistogramBin> {
+    /** Groups durations by time; values beyond the 95th percentile go into a labelled overflow bin. */
+    fun histogram(seconds: List<Long>, minimumHours: Long = minimumBinHours): List<HistogramBin> {
         if (seconds.isEmpty()) return emptyList()
-        val maxHours = ceil(seconds.max().coerceAtLeast(0) / 3600.0).toLong()
-        val width = maxOf(minimumBinHours, ceil((maxHours + 1) / 40.0).toLong())
-        val counts = seconds.groupingBy { (it.coerceAtLeast(0) / 3600) / width }.eachCount()
-        return (0..(maxHours / width)).map { index ->
-            HistogramBin(index * width, (index + 1) * width, counts[index] ?: 0)
+        require(minimumHours > 0) { "minimumHours must be positive" }
+        val hours = seconds.map { it.coerceAtLeast(0) / 3600 }.sorted()
+        val mainRange = hours[((hours.size - 1) * 0.95).toInt()]
+        val rawWidth = maxOf(minimumHours, ceil((mainRange + 1) / 30.0).toLong())
+        val width = if (minimumHours >= 24) ((rawWidth + 23) / 24) * 24 else rawWidth
+        val regularCount = minOf(30L, mainRange / width + 1).toInt()
+        val counts = IntArray(regularCount)
+        var overflowCount = 0
+        hours.forEach { value ->
+            val bin = value / width
+            if (bin >= regularCount) overflowCount++ else counts[bin.toInt()]++
         }
+        val regular = counts.mapIndexed { index, count ->
+            HistogramBin(index * width, (index + 1) * width, count)
+        }
+        return regular + if (overflowCount > 0) listOf(HistogramBin(regularCount * width, regularCount * width, overflowCount, true)) else emptyList()
     }
 }

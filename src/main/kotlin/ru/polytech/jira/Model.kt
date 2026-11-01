@@ -20,7 +20,7 @@ data class DailyCount(val day: java.time.LocalDate, val created: Int, val closed
 data class UserCount(val name: String, val assignee: Int, val reporter: Int) {
     val total: Int get() = assignee + reporter
 }
-data class HistogramBin(val fromHours: Long, val toHours: Long, val count: Int)
+data class HistogramBin(val fromHours: Long, val toHours: Long, val count: Int, val overflow: Boolean = false)
 data class Report(
     val issueCount: Int,
     val closedCount: Int,
@@ -29,5 +29,6 @@ data class Report(
     val daily: List<DailyCount>,
     val users: List<UserCount>,
     val worklogDuration: List<HistogramBin>,
+    val unloggedClosedCount: Int,
     val priorities: Map<String, Int>
 )

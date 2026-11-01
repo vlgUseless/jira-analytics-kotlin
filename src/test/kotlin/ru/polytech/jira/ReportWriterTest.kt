@@ -23,6 +23,26 @@ class ReportWriterTest {
         assertTrue(html.contains("&lt;Alice&gt;"))
         assertTrue(html.contains("<svg"))
         assertTrue(html.contains("Создано всего"))
+        assertTrue(html.contains("Создано и закрыто за день"))
+        assertTrue(html.contains("Накопительный итог"))
         assertTrue(html.contains("Выборка: 1 задача"))
+    }
+
+    @Test fun `report explains missing worklog data`() {
+        val issue = Issue("T-2", Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-01-02T00:00:00Z"),
+            "Done", emptyList(), null, null, "Medium", 0)
+        val report = Analyzer(ZoneId.of("UTC"), 24).analyze(listOf(issue))
+        val html = Files.readString(ReportWriter().write(report, "T", directory))
+        assertTrue(html.contains("без него: 1"))
+        assertTrue(html.contains("Распределение по времени построить не из чего"))
+    }
+
+    @Test fun `standard priorities follow severity order`() {
+        val report = Analyzer(ZoneId.of("UTC"), 24).analyze(emptyList())
+            .copy(priorities = mapOf("Minor" to 8, "Blocker" to 1, "Major" to 3))
+        val html = Files.readString(ReportWriter().write(report, "T", directory))
+        val priorities = html.substringAfter("6. Степень серьёзности")
+        assertTrue(priorities.indexOf(">Blocker<") < priorities.indexOf(">Major<"))
+        assertTrue(priorities.indexOf(">Major<") < priorities.indexOf(">Minor<"))
     }
 }

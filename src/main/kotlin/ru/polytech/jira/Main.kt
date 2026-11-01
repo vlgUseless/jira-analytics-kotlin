@@ -11,7 +11,7 @@ fun main(args: Array<String>) {
         val issues = JiraClient(config).fetchIssues()
         val report = Analyzer(config.zone, config.binHours).analyze(issues)
         val scopeNote = if (config.maxIssues > 0) {
-            "Выборка: не более ${config.maxIssues} задач по дате создания (${config.sortOrder}). Для полного отчёта установите jira.maxIssues=0."
+            "Выборка: не более ${config.maxIssues} задач по дате создания (${config.sortOrder}). Граничный день выборки может быть неполным. Для полного отчёта установите jira.maxIssues=0."
         } else null
         val output = ReportWriter().write(report, config.project, config.output, scopeNote)
         println("Processed ${report.issueCount} issues (${report.closedCount} closed). Report: ${output.toAbsolutePath()}")
