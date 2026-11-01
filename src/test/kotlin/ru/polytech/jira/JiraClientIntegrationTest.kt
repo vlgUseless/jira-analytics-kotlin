@@ -51,20 +51,19 @@ class JiraClientIntegrationTest {
         }
     }
 
-    @Test fun `full project uses ID cursor beyond search offset windows`() {
+    @Test fun `full project reads successive search pages`() {
         FakeJira { path, body ->
             require(path == "/rest/api/2/search")
             when {
-                body.contains("id > 102") -> """{"total":0,"issues":[]}"""
-                body.contains("id > 101") -> fixture("search-page-1.json").replace("\"total\": 2", "\"total\": 1")
+                body.contains("\"startAt\":1") -> fixture("search-page-1.json")
                 else -> fixture("search-page-0.json")
             }
         }.use { jira ->
             val issues = JiraClient(jira.config().copy(maxIssues = 0)).fetchIssues()
             assertEquals(setOf("T-1", "T-2"), issues.map(Issue::key).toSet())
-            assertEquals(3, jira.searchBodies.size)
-            assertTrue(jira.searchBodies.all { it.contains("\"startAt\":0") })
-            assertTrue(jira.searchBodies.any { it.contains("id > 101") })
+            assertEquals(2, jira.searchBodies.size)
+            assertTrue(jira.searchBodies.any { it.contains("\"startAt\":1") })
+            assertTrue(jira.searchBodies.all { it.contains("ORDER BY id ASC") })
         }
     }
 

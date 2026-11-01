@@ -25,19 +25,17 @@ class JiraClient(private val config: AppConfig, private val http: HttpClient = H
         val issues = mutableListOf<Issue>()
         val seenKeys = mutableSetOf<String>()
         var start = 0
-        var lastId: Long? = null
-        var initialTotal: Int? = null
         val fullProject = config.maxIssues == 0
         while (true) {
             val remaining = if (fullProject) config.pageSize else minOf(config.pageSize, config.maxIssues - issues.size)
             val jql = if (fullProject) {
-                "project = ${config.project}" + (lastId?.let { " AND id > $it" } ?: "") + " ORDER BY id ASC"
+                "project = ${config.project} ORDER BY id ASC"
             } else {
                 "project = ${config.project} ORDER BY created ${config.sortOrder}, id ${config.sortOrder}"
             }
             val body = JsonObject().apply {
                 addProperty("jql", jql)
-                addProperty("startAt", if (fullProject) 0 else start)
+                addProperty("startAt", start)
                 addProperty("maxResults", remaining)
                 add("expand", JsonArray().apply { add("changelog") })
                 add("fields", JsonArray().apply {
@@ -48,21 +46,12 @@ class JiraClient(private val config: AppConfig, private val http: HttpClient = H
             val entries = page.requiredArray("issues")
             val total = page.requiredInt("total")
             require(total >= 0) { "Jira returned a negative search total" }
-            if (initialTotal == null) initialTotal = total
             if (entries.size() == 0) {
-                if (!fullProject && start < total) error("Jira returned an empty page before all issues were read")
+                if (start < total) error("Jira returned an empty page before all issues were read")
                 break
             }
-            val target = if (fullProject) initialTotal else minOf(total, config.maxIssues)
+            val target = if (fullProject) total else minOf(total, config.maxIssues)
             System.err.println("Jira: ${issues.size}/$target loaded; search returned ${entries.size()} issues")
-            if (fullProject) {
-                val ids = entries.map { it.asJsonObject.requiredString("id").toLongOrNull()
-                    ?: error("Jira returned a nonnumeric issue ID") }
-                require(ids.zipWithNext().all { (a, b) -> a < b } && (lastId == null || ids.first() > lastId!!)) {
-                    "Jira returned issue IDs out of order"
-                }
-                lastId = ids.last()
-            }
             entries.forEachIndexed { index, entry ->
                 val summary = entry.asJsonObject
                 val fields = summary.requiredObject("fields")
@@ -77,10 +66,8 @@ class JiraClient(private val config: AppConfig, private val http: HttpClient = H
                     System.err.println("Jira: ${issues.size}/$target loaded")
                 }
             }
-            if (!fullProject) {
-                start += entries.size()
-                if (start >= total || issues.size >= config.maxIssues) break
-            }
+            start += entries.size()
+            if (start >= total || (!fullProject && issues.size >= config.maxIssues)) break
         }
         return issues
     }
