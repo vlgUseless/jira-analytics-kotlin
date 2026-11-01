@@ -1,0 +1,27 @@
+package ru.polytech.jira
+
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Instant
+import java.time.ZoneId
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class ReportWriterTest {
+    @TempDir lateinit var directory: Path
+
+    @Test fun `report contains six graph categories and escapes Jira text`() {
+        val issue = Issue("T-1", Instant.parse("2024-01-01T00:00:00Z"), Instant.parse("2024-01-02T00:00:00Z"),
+            "Done", listOf(StatusChange(Instant.parse("2024-01-01T12:00:00Z"), "Open", "Done")),
+            JiraUser("a", "<Alice>"), null, "High", 3600)
+        val report = Analyzer(ZoneId.of("UTC"), 24).analyze(listOf(issue))
+        val file = ReportWriter().write(report, "T", directory)
+        val html = Files.readString(file)
+        assertEquals(6, Regex("<h2>").findAll(html).count())
+        assertTrue(html.contains("&lt;Alice&gt;"))
+        assertTrue(html.contains("<svg"))
+        assertTrue(html.contains("Создано всего"))
+    }
+}
