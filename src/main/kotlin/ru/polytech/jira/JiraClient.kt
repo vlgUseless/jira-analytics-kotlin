@@ -15,6 +15,10 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Base64
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.ExecutorCompletionService
+import java.util.concurrent.Executors
 
 /** Fetches Jira issues through the Server/Data Center REST API. */
 class JiraClient(private val config: AppConfig, private val http: HttpClient = HttpClient.newBuilder()
@@ -24,27 +28,46 @@ class JiraClient(private val config: AppConfig, private val http: HttpClient = H
     fun fetchIssues(): List<Issue> {
         val issues = mutableListOf<Issue>()
         var start = 0
-        while (true) {
-            val body = JsonObject().apply {
-                addProperty("jql", "project = ${config.project} ORDER BY created ASC")
-                addProperty("startAt", start)
-                addProperty("maxResults", config.pageSize)
-                add("fields", com.google.gson.JsonArray().apply {
-                    listOf("created", "resolutiondate", "status", "assignee", "reporter", "priority", "timespent").forEach { add(it) }
-                })
+        val executor = Executors.newFixedThreadPool(config.detailConcurrency)
+        val completed = ExecutorCompletionService<Issue>(executor)
+        try {
+            while (true) {
+                val remaining = if (config.maxIssues == 0) config.pageSize else minOf(config.pageSize, config.maxIssues - issues.size)
+                val body = JsonObject().apply {
+                    addProperty("jql", "project = ${config.project} ORDER BY created ${config.sortOrder}")
+                    addProperty("startAt", start)
+                    addProperty("maxResults", remaining)
+                    add("fields", JsonArray().apply {
+                        listOf("created", "resolutiondate", "status", "assignee", "reporter", "priority", "timespent").forEach { add(it) }
+                    })
+                }
+                val page = request("POST", "/rest/api/2/search", body.toString())
+                val entries = page.array("issues")
+                val total = page.int("total")
+                if (entries.size() == 0 && start < total) error("Jira returned an empty page before all issues were read")
+                val target = if (config.maxIssues == 0) total else minOf(total, config.maxIssues)
+                System.err.println("Jira: ${issues.size}/$target loaded; search returned ${entries.size()} issues from offset $start")
+                entries.forEach { entry ->
+                    val summary = entry.asJsonObject
+                    completed.submit(Callable {
+                        val fields = summary.obj("fields")
+                        val resolved = fields.string("resolutiondate")?.let(::parseDate)
+                        val detail = if (resolved != null) request("GET", "/rest/api/2/issue/${encode(summary.string("key")!!)}?expand=changelog") else null
+                        parseIssue(summary, detail)
+                    })
+                }
+                repeat(entries.size()) { index ->
+                    try { issues += completed.take().get() }
+                    catch (e: ExecutionException) { throw e.cause ?: e }
+                    if ((index + 1) % 10 == 0 || index + 1 == entries.size()) {
+                        System.err.println("Jira: ${issues.size}/$target loaded")
+                    }
+                }
+                start += entries.size()
+                if (start >= total || (config.maxIssues > 0 && issues.size >= config.maxIssues)) break
             }
-            val page = request("POST", "/rest/api/2/search", body.toString())
-            val entries = page.array("issues")
-            if (entries.size() == 0 && start < page.int("total")) error("Jira returned an empty page before all issues were read")
-            for (entry in entries) {
-                val summary = entry.asJsonObject
-                val fields = summary.obj("fields")
-                val resolved = fields.string("resolutiondate")?.let(::parseDate)
-                val detail = if (resolved != null) request("GET", "/rest/api/2/issue/${encode(summary.string("key")!!)}?expand=changelog") else null
-                issues += parseIssue(summary, detail)
-            }
-            start += entries.size()
-            if (start >= page.int("total")) break
+        } finally {
+            executor.shutdownNow()
         }
         return issues
     }

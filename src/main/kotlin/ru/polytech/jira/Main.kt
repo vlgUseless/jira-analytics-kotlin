@@ -7,9 +7,13 @@ import kotlin.system.exitProcess
 fun main(args: Array<String>) {
     try {
         val config = AppConfig.load(Path.of(args.firstOrNull() ?: "config/app.properties"))
+        System.err.println("Jira project ${config.project}: ${if (config.maxIssues == 0) "all issues" else "up to ${config.maxIssues} issues"}, created ${config.sortOrder}")
         val issues = JiraClient(config).fetchIssues()
         val report = Analyzer(config.zone, config.binHours).analyze(issues)
-        val output = ReportWriter().write(report, config.project, config.output)
+        val scopeNote = if (config.maxIssues > 0) {
+            "Выборка: не более ${config.maxIssues} задач по дате создания (${config.sortOrder}). Для полного отчёта установите jira.maxIssues=0."
+        } else null
+        val output = ReportWriter().write(report, config.project, config.output, scopeNote)
         println("Processed ${report.issueCount} issues (${report.closedCount} closed). Report: ${output.toAbsolutePath()}")
     } catch (error: Exception) {
         System.err.println("Error: ${error.message}")

@@ -17,11 +17,12 @@ class ReportWriterTest {
             "Done", listOf(StatusChange(Instant.parse("2024-01-01T12:00:00Z"), "Open", "Done")),
             JiraUser("a", "<Alice>"), null, "High", 3600)
         val report = Analyzer(ZoneId.of("UTC"), 24).analyze(listOf(issue))
-        val file = ReportWriter().write(report, "T", directory)
+        val file = ReportWriter().write(report, "T", directory, "Выборка: 1 задача")
         val html = Files.readString(file)
         assertEquals(6, Regex("<h2>").findAll(html).count())
         assertTrue(html.contains("&lt;Alice&gt;"))
         assertTrue(html.contains("<svg"))
         assertTrue(html.contains("Создано всего"))
+        assertTrue(html.contains("Выборка: 1 задача"))
     }
 }

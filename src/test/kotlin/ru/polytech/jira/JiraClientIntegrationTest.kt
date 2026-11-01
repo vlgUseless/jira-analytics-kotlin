@@ -12,12 +12,14 @@ class JiraClientIntegrationTest {
     @Test fun `client reads all search pages and status history from HTTP server`() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val requests = mutableListOf<String>()
+        val searchBodies = mutableListOf<String>()
         server.createContext("/") { exchange ->
             val path = exchange.requestURI.toString()
             requests += path
             val response = when {
                 path == "/rest/api/2/search" -> {
                     val body = exchange.requestBody.bufferedReader().readText()
+                    searchBodies += body
                     if (body.contains("\"startAt\":0")) """{"total":2,"issues":[{"key":"T-1","fields":{"created":"2024-01-01T00:00:00.000+0000","resolutiondate":"2024-01-02T00:00:00.000+0000","status":{"name":"Done"},"priority":{"name":"High"},"timespent":3600}}]}"""
                     else """{"total":2,"issues":[{"key":"T-2","fields":{"created":"2024-01-03T00:00:00.000+0000","resolutiondate":null,"status":{"name":"Open"},"priority":null,"timespent":null}}]}"""
                 }
@@ -38,6 +40,10 @@ class JiraClientIntegrationTest {
             assertEquals(3600, issues.first().timeSpentSeconds)
             assertTrue(requests.count { it == "/rest/api/2/search" } == 2)
             assertEquals(1, Analyzer(config.zone, 24).analyze(issues).closedCount)
+            val preview = JiraClient(config.copy(maxIssues = 1, sortOrder = "DESC")).fetchIssues()
+            assertEquals(1, preview.size)
+            assertEquals(3, requests.count { it == "/rest/api/2/search" })
+            assertTrue(searchBodies.last().contains("ORDER BY created DESC"))
         } finally {
             server.stop(0)
         }

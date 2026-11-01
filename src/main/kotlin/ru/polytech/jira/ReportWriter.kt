@@ -8,7 +8,7 @@ import kotlin.math.max
 /** Writes a self-contained HTML report with six types of SVG charts. */
 class ReportWriter {
     /** Creates index.html in the selected output directory. */
-    fun write(report: Report, project: String, output: Path): Path {
+    fun write(report: Report, project: String, output: Path, scopeNote: String? = null): Path {
         Files.createDirectories(output)
         val sections = buildString {
             append(section("1. Время от создания до закрытия", "Количество закрытых задач по длительности", histogram(report.openDuration, "Время, ч")))
@@ -23,15 +23,19 @@ class ReportWriter {
             append(section("5. Залогированное время", "Количество закрытых задач по суммарному timeSpent", histogram(report.worklogDuration, "Время, ч")))
             append(section("6. Степень серьёзности", "Количество задач по полю Priority Jira", priorities(report.priorities)))
         }
-        val html = """<!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Аналитика Jira — ${escape(project)}</title><style>
-body{font:16px/1.5 system-ui,sans-serif;color:#1c2733;background:#f6f8fb;margin:0 auto;padding:24px;max-width:1200px}
-h1,h2,h3{line-height:1.2}header,section{background:white;border:1px solid #dce3ea;border-radius:8px;padding:20px;margin-bottom:20px}
-svg{width:100%;height:auto;display:block} .axis{stroke:#607080;stroke-width:1.5}.grid{stroke:#e2e8ef}.tick{font:12px system-ui,sans-serif;fill:#44515e}.label{font:14px system-ui,sans-serif;fill:#1c2733}
-.legend{display:flex;gap:18px;flex-wrap:wrap}.legend span:before{content:'■ ';color:var(--c)}
-</style></head><body><header><h1>Аналитика задач Jira: ${escape(project)}</h1>
-<p>Всего задач: ${report.issueCount}. Закрытых: ${report.closedCount}.</p></header>$sections</body></html>"""
+        val template = javaClass.getResourceAsStream("/report-template.html")
+            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+            ?: error("Report template is missing from the application resources")
+        val values = mapOf(
+            "PROJECT" to escape(project),
+            "ISSUE_COUNT" to report.issueCount.toString(),
+            "CLOSED_COUNT" to report.closedCount.toString(),
+            "SCOPE_NOTE" to (scopeNote?.let { "<p>${escape(it)}</p>" } ?: ""),
+            "SECTIONS" to sections
+        )
+        val html = Regex("""\{\{([A-Z_]+)\}\}""").replace(template) { match ->
+            values[match.groupValues[1]] ?: error("Unknown report placeholder ${match.value}")
+        }
         val target = output.resolve("index.html")
         Files.writeString(target, html)
         return target

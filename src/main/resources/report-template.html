@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Аналитика Jira — {{PROJECT}}</title>
+  <style>
+    body { font: 16px/1.5 system-ui,sans-serif; color: #1c2733; background: #f6f8fb; margin: 0 auto; padding: 24px; max-width: 1200px; }
+    h1,h2,h3 { line-height: 1.2; }
+    header,section { background: white; border: 1px solid #dce3ea; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    svg { width: 100%; height: auto; display: block; }
+    .axis { stroke: #607080; stroke-width: 1.5; }
+    .grid { stroke: #e2e8ef; }
+    .tick { font: 12px system-ui,sans-serif; fill: #44515e; }
+    .label { font: 14px system-ui,sans-serif; fill: #1c2733; }
+    .legend { display: flex; gap: 18px; flex-wrap: wrap; }
+    .legend span:before { content: '■ '; color: var(--c); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Аналитика задач Jira: {{PROJECT}}</h1>
+    <p>Обработано задач: {{ISSUE_COUNT}}. Закрытых: {{CLOSED_COUNT}}.</p>
+    {{SCOPE_NOTE}}
+  </header>
+  {{SECTIONS}}
+</body>
+</html>
