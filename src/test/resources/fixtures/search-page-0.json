@@ -1,0 +1,27 @@
+{
+  "total": 2,
+  "issues": [
+    {
+      "id": "101",
+      "key": "T-1",
+      "fields": {
+        "created": "2024-01-01T00:00:00.000+0000",
+        "resolutiondate": "2024-01-02T00:00:00.000+0000",
+        "status": { "name": "Done" },
+        "priority": { "name": "High" },
+        "timespent": 3600
+      },
+      "changelog": {
+        "total": 1,
+        "histories": [
+          {
+            "created": "2024-01-01T12:00:00.000+0000",
+            "items": [
+              { "field": "status", "fromString": "Open", "toString": "Done" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

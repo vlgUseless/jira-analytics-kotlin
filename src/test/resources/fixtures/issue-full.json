@@ -1,0 +1,19 @@
+{
+  "changelog": {
+    "total": 2,
+    "histories": [
+      {
+        "created": "2024-01-01T12:00:00.000+0000",
+        "items": [
+          { "field": "status", "fromString": "Open", "toString": "Doing" }
+        ]
+      },
+      {
+        "created": "2024-01-01T18:00:00.000+0000",
+        "items": [
+          { "field": "status", "fromString": "Doing", "toString": "Done" }
+        ]
+      }
+    ]
+  }
+}

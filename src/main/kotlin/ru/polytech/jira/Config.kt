@@ -2,6 +2,7 @@ package ru.polytech.jira
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.net.URI
 import java.time.ZoneId
 import java.util.Properties
 
@@ -18,6 +19,10 @@ data class AppConfig(
     val sortOrder: String = "ASC",
     val detailConcurrency: Int = 4
 ) {
+    override fun toString(): String =
+        "AppConfig(baseUrl=$baseUrl, project=$project, user=$user, token=<redacted>, zone=$zone, output=$output, " +
+            "binHours=$binHours, pageSize=$pageSize, maxIssues=$maxIssues, sortOrder=$sortOrder, detailConcurrency=$detailConcurrency)"
+
     companion object {
         /** Loads and validates a distribution configuration file. Environment credentials take precedence. */
         fun load(path: Path, environment: Map<String, String> = System.getenv()): AppConfig {
@@ -25,7 +30,9 @@ data class AppConfig(
             Files.newInputStream(path).use(properties::load)
             fun value(key: String) = properties.getProperty(key, "").trim()
             val baseUrl = value("jira.baseUrl").trimEnd('/')
-            require(baseUrl.startsWith("https://") || baseUrl.startsWith("http://")) { "jira.baseUrl must be an HTTP(S) URL" }
+            val uri = try { URI(baseUrl) } catch (_: Exception) { throw IllegalArgumentException("jira.baseUrl must be an HTTP(S) URL") }
+            require(uri.scheme in setOf("https", "http") && !uri.host.isNullOrBlank() && uri.userInfo == null &&
+                uri.query == null && uri.fragment == null) { "jira.baseUrl must be a plain HTTP(S) base URL" }
             val project = value("jira.project")
             require(project.matches(Regex("[A-Za-z][A-Za-z0-9_]*"))) { "jira.project must be a Jira project key" }
             val binHours = value("report.binHours").ifBlank { "24" }.toLongOrNull()

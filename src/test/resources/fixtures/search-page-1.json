@@ -1,0 +1,16 @@
+{
+  "total": 2,
+  "issues": [
+    {
+      "id": "102",
+      "key": "T-2",
+      "fields": {
+        "created": "2024-01-03T00:00:00.000+0000",
+        "resolutiondate": null,
+        "status": { "name": "Open" },
+        "priority": null,
+        "timespent": null
+      }
+    }
+  ]
+}

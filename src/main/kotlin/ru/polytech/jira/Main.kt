@@ -7,7 +7,7 @@ import kotlin.system.exitProcess
 fun main(args: Array<String>) {
     try {
         val config = AppConfig.load(Path.of(args.firstOrNull() ?: "config/app.properties"))
-        System.err.println("Jira project ${config.project}: ${if (config.maxIssues == 0) "all issues" else "up to ${config.maxIssues} issues"}, created ${config.sortOrder}")
+        System.err.println("Jira project ${config.project}: ${if (config.maxIssues == 0) "all issues, ordered by ID" else "up to ${config.maxIssues} issues, created ${config.sortOrder}"}")
         val issues = JiraClient(config).fetchIssues()
         val report = Analyzer(config.zone, config.binHours).analyze(issues)
         val scopeNote = if (config.maxIssues > 0) {

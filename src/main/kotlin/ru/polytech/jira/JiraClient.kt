@@ -4,6 +4,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import java.io.IOException
 import java.net.URI
 import java.net.URLEncoder
 import java.net.http.HttpClient
@@ -27,44 +28,76 @@ class JiraClient(private val config: AppConfig, private val http: HttpClient = H
     /** Reads every search page, including full changelogs for closed issues. */
     fun fetchIssues(): List<Issue> {
         val issues = mutableListOf<Issue>()
+        val seenKeys = mutableSetOf<String>()
         var start = 0
+        var lastId: Long? = null
+        var initialTotal: Int? = null
+        val fullProject = config.maxIssues == 0
         val executor = Executors.newFixedThreadPool(config.detailConcurrency)
         val completed = ExecutorCompletionService<Issue>(executor)
         try {
             while (true) {
-                val remaining = if (config.maxIssues == 0) config.pageSize else minOf(config.pageSize, config.maxIssues - issues.size)
+                val remaining = if (fullProject) config.pageSize else minOf(config.pageSize, config.maxIssues - issues.size)
+                val jql = if (fullProject) {
+                    "project = ${config.project}" + (lastId?.let { " AND id > $it" } ?: "") + " ORDER BY id ASC"
+                } else {
+                    "project = ${config.project} ORDER BY created ${config.sortOrder}, id ${config.sortOrder}"
+                }
                 val body = JsonObject().apply {
-                    addProperty("jql", "project = ${config.project} ORDER BY created ${config.sortOrder}")
-                    addProperty("startAt", start)
+                    addProperty("jql", jql)
+                    addProperty("startAt", if (fullProject) 0 else start)
                     addProperty("maxResults", remaining)
+                    add("expand", JsonArray().apply { add("changelog") })
                     add("fields", JsonArray().apply {
                         listOf("created", "resolutiondate", "status", "assignee", "reporter", "priority", "timespent").forEach { add(it) }
                     })
                 }
                 val page = request("POST", "/rest/api/2/search", body.toString())
-                val entries = page.array("issues")
-                val total = page.int("total")
-                if (entries.size() == 0 && start < total) error("Jira returned an empty page before all issues were read")
-                val target = if (config.maxIssues == 0) total else minOf(total, config.maxIssues)
-                System.err.println("Jira: ${issues.size}/$target loaded; search returned ${entries.size()} issues from offset $start")
+                val entries = page.requiredArray("issues")
+                val total = page.requiredInt("total")
+                require(total >= 0) { "Jira returned a negative search total" }
+                if (initialTotal == null) initialTotal = total
+                if (entries.size() == 0) {
+                    if (!fullProject && start < total) error("Jira returned an empty page before all issues were read")
+                    break
+                }
+                val target = if (fullProject) initialTotal else minOf(total, config.maxIssues)
+                System.err.println("Jira: ${issues.size}/$target loaded; search returned ${entries.size()} issues")
+                if (fullProject) {
+                    val ids = entries.map { it.asJsonObject.requiredString("id").toLongOrNull()
+                        ?: error("Jira returned a nonnumeric issue ID") }
+                    require(ids.zipWithNext().all { (a, b) -> a < b } && (lastId == null || ids.first() > lastId!!)) {
+                        "Jira returned issue IDs out of order"
+                    }
+                    lastId = ids.last()
+                }
                 entries.forEach { entry ->
                     val summary = entry.asJsonObject
                     completed.submit(Callable {
-                        val fields = summary.obj("fields")
+                        val fields = summary.requiredObject("fields")
                         val resolved = fields.string("resolutiondate")?.let(::parseDate)
-                        val detail = if (resolved != null) request("GET", "/rest/api/2/issue/${encode(summary.string("key")!!)}?expand=changelog") else null
-                        parseIssue(summary, detail)
+                        val complete = summary.hasCompleteChangelog()
+                        val detail = if (resolved != null && !complete) {
+                            request("GET", "/rest/api/2/issue/${encode(summary.requiredString("key"))}?expand=changelog")
+                        } else null
+                        parseIssue(summary, detail ?: summary)
                     })
                 }
                 repeat(entries.size()) { index ->
-                    try { issues += completed.take().get() }
+                    try {
+                        val issue = completed.take().get()
+                        check(seenKeys.add(issue.key)) { "Jira returned duplicate issue ${issue.key} while paging" }
+                        issues += issue
+                    }
                     catch (e: ExecutionException) { throw e.cause ?: e }
                     if ((index + 1) % 10 == 0 || index + 1 == entries.size()) {
                         System.err.println("Jira: ${issues.size}/$target loaded")
                     }
                 }
-                start += entries.size()
-                if (start >= total || (config.maxIssues > 0 && issues.size >= config.maxIssues)) break
+                if (!fullProject) {
+                    start += entries.size()
+                    if (start >= total || issues.size >= config.maxIssues) break
+                }
             }
         } finally {
             executor.shutdownNow()
@@ -72,17 +105,18 @@ class JiraClient(private val config: AppConfig, private val http: HttpClient = H
         return issues
     }
 
-    private fun parseIssue(summary: JsonObject, detail: JsonObject?): Issue {
-        val fields = summary.obj("fields")
-        val changelog = detail?.obj("changelog")
-        val histories = changelog?.array("histories") ?: JsonArray()
-        if (changelog != null && histories.size() < changelog.int("total")) {
-            error("Incomplete changelog for ${summary.string("key")}: Jira returned ${histories.size()} of ${changelog.int("total")}")
+    private fun parseIssue(summary: JsonObject, detail: JsonObject): Issue {
+        val fields = summary.requiredObject("fields")
+        val resolved = fields.string("resolutiondate")?.let(::parseDate)
+        val changelog = detail.objOrNull("changelog")
+        if (resolved != null && !detail.hasCompleteChangelog()) {
+            error("Incomplete changelog for ${summary.requiredString("key")}: Jira did not return the full history")
         }
+        val histories = changelog?.requiredArray("histories") ?: JsonArray()
         val changes = histories.flatMap { history ->
             val h = history.asJsonObject
-            val at = parseDate(h.string("created")!!)
-            h.array("items").mapNotNull { item ->
+            val at = parseDate(h.requiredString("created"))
+            h.requiredArray("items").mapNotNull { item ->
                 val i = item.asJsonObject
                 if (i.string("field")?.equals("status", true) == true) StatusChange(at, i.string("fromString"), i.string("toString")) else null
             }
@@ -92,10 +126,10 @@ class JiraClient(private val config: AppConfig, private val http: HttpClient = H
                 it.string("displayName") ?: it.string("name") ?: "Unknown")
         }
         return Issue(
-            summary.string("key") ?: error("Issue has no key"),
-            parseDate(fields.string("created") ?: error("Issue has no creation date")),
-            fields.string("resolutiondate")?.let(::parseDate),
-            fields.obj("status").string("name") ?: "Unknown",
+            summary.requiredString("key"),
+            parseDate(fields.requiredString("created")),
+            resolved,
+            fields.requiredObject("status").requiredString("name"),
             changes, user("assignee"), user("reporter"),
             fields.objOrNull("priority")?.string("name") ?: "Unspecified",
             fields.long("timespent") ?: 0L
@@ -112,10 +146,33 @@ class JiraClient(private val config: AppConfig, private val http: HttpClient = H
         }
         if (method == "POST") builder.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body!!))
         else builder.GET()
-        val response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
-        if (response.statusCode() !in 200..299) error("Jira HTTP ${response.statusCode()} at $path: ${response.body().take(300)}")
-        return try { JsonParser().parse(response.body()).asJsonObject }
-        catch (e: RuntimeException) { throw IllegalStateException("Invalid Jira JSON at $path", e) }
+        val builtRequest = builder.build()
+        for (attempt in 1..3) {
+            val response = try {
+                http.send(builtRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+            } catch (error: IOException) {
+                if (attempt == 3) throw IOException("Jira request failed at $path after 3 attempts", error)
+                pauseBeforeRetry(attempt, null)
+                continue
+            }
+            if (response.statusCode() in setOf(429, 500, 502, 503, 504) && attempt < 3) {
+                System.err.println("Jira HTTP ${response.statusCode()} at $path; retrying ($attempt/3)")
+                pauseBeforeRetry(attempt, response.headers().firstValue("Retry-After").orElse(null))
+                continue
+            }
+            if (response.statusCode() !in 200..299) {
+                error("Jira HTTP ${response.statusCode()} at $path: ${response.body().take(300)}")
+            }
+            return try { JsonParser().parse(response.body()).asJsonObject }
+            catch (e: RuntimeException) { throw IllegalStateException("Invalid Jira JSON at $path", e) }
+        }
+        error("Jira request failed at $path")
+    }
+
+    private fun pauseBeforeRetry(attempt: Int, retryAfter: String?) {
+        val delayMs = retryAfter?.toLongOrNull()?.coerceIn(0, 5)?.times(1000)
+            ?: minOf(2000L, 500L * (1L shl (attempt - 1)))
+        Thread.sleep(delayMs)
     }
 
     private fun encode(value: String) = URLEncoder.encode(value, StandardCharsets.UTF_8)
@@ -127,8 +184,17 @@ internal fun parseDate(value: String): Instant = try {
     OffsetDateTime.parse(value, DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss[.SSS]Z")).toInstant()
 }
 private fun JsonObject.string(key: String): String? = get(key)?.takeUnless(JsonElement::isJsonNull)?.asString
-private fun JsonObject.int(key: String): Int = get(key)?.takeUnless(JsonElement::isJsonNull)?.asInt ?: 0
+private fun JsonObject.requiredString(key: String): String = string(key) ?: error("Jira response is missing '$key'")
+private fun JsonObject.requiredInt(key: String): Int = get(key)?.takeUnless(JsonElement::isJsonNull)?.asInt
+    ?: error("Jira response is missing '$key'")
 private fun JsonObject.long(key: String): Long? = get(key)?.takeUnless(JsonElement::isJsonNull)?.asLong
-private fun JsonObject.obj(key: String): JsonObject = objOrNull(key) ?: JsonObject()
+private fun JsonObject.requiredObject(key: String): JsonObject = objOrNull(key) ?: error("Jira response is missing '$key'")
 private fun JsonObject.objOrNull(key: String): JsonObject? = get(key)?.takeUnless(JsonElement::isJsonNull)?.asJsonObject
-private fun JsonObject.array(key: String): JsonArray = get(key)?.takeUnless(JsonElement::isJsonNull)?.asJsonArray ?: JsonArray()
+private fun JsonObject.requiredArray(key: String): JsonArray = get(key)?.takeUnless(JsonElement::isJsonNull)?.asJsonArray
+    ?: error("Jira response is missing '$key'")
+private fun JsonObject.hasCompleteChangelog(): Boolean {
+    val changelog = objOrNull("changelog") ?: return false
+    val total = changelog.get("total")?.takeUnless(JsonElement::isJsonNull)?.asInt ?: return false
+    val histories = changelog.get("histories")?.takeUnless(JsonElement::isJsonNull)?.asJsonArray ?: return false
+    return total >= 0 && histories.size() == total
+}
