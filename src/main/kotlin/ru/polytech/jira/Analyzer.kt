@@ -75,12 +75,12 @@ class Analyzer(private val zone: ZoneId, private val minimumBinHours: Long) {
         return result
     }
 
-    /** Groups durations by time; values beyond the 95th percentile go into a labelled overflow bin. */
+    /** Groups durations by time; larger samples put the longest values beyond the main range in an overflow bin. */
     fun histogram(seconds: List<Long>, minimumHours: Long = minimumBinHours): List<HistogramBin> {
         if (seconds.isEmpty()) return emptyList()
         require(minimumHours > 0) { "minimumHours must be positive" }
         val hours = seconds.map { it.coerceAtLeast(0) / 3600 }.sorted()
-        val mainRange = hours[((hours.size - 1) * 0.95).toInt()]
+        val mainRange = if (hours.size < 10) hours.last() else hours[((hours.size - 1) * 0.95).toInt()]
         val rawWidth = maxOf(minimumHours, ceil((mainRange + 1) / 30.0).toLong())
         val width = if (minimumHours >= 24) ((rawWidth + 23) / 24) * 24 else rawWidth
         val regularCount = minOf(30L, mainRange / width + 1).toInt()

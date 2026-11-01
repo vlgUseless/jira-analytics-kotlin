@@ -37,6 +37,21 @@ class ReportWriterTest {
         assertTrue(html.contains("Распределение по времени построить не из чего"))
     }
 
+    @Test fun `report keeps histogram and full range for three logged issues`() {
+        val created = Instant.parse("2024-01-01T00:00:00Z")
+        val resolved = Instant.parse("2024-01-02T00:00:00Z")
+        val issues = listOf(3600L, 21600L, 28800L).mapIndexed { index, spent ->
+            Issue("T-$index", created, resolved, "Done", emptyList(), null, null, "Medium", spent)
+        }
+        val report = Analyzer(ZoneId.of("UTC"), 24).analyze(issues)
+        val html = Files.readString(ReportWriter().write(report, "T", directory))
+        val section = html.substringAfter("5. Залогированное время").substringBefore("6. Степень серьёзности")
+        assertTrue(section.contains("Наблюдений с записанным временем только 3"))
+        assertTrue(section.contains("<svg"))
+        assertTrue(report.worklogDuration.none(HistogramBin::overflow))
+        assertEquals(3, report.worklogDuration.sumOf(HistogramBin::count))
+    }
+
     @Test fun `standard priorities follow severity order`() {
         val report = Analyzer(ZoneId.of("UTC"), 24).analyze(emptyList())
             .copy(priorities = mapOf("Minor" to 8, "Blocker" to 1, "Major" to 3))
