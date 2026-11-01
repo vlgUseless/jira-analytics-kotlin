@@ -62,9 +62,6 @@ class ReportWriter {
         val unitHours = if (preferredUnitHours == 24L && (bins.first().toHours - bins.first().fromHours) % 24 == 0L) 24L else 1L
         val unitName = if (unitHours == 24L) "дни" else "часы"
         return buildString {
-            val regular = bins.first()
-            val binSize = (regular.toHours - regular.fromHours) / unitHours
-            append("<p>Ширина обычного интервала: $binSize ${if (unitHours == 24L) "дн." else "ч."} Числа на оси — границы интервалов.</p>")
             append(svgStart(width, height, "Гистограмма по времени"))
             append(axes(left, top, plotWidth, plotHeight, ceiling, "Количество задач"))
             bins.forEachIndexed { index, bin ->

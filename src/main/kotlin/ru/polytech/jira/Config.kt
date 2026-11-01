@@ -16,8 +16,10 @@ data class AppConfig(
     val binHours: Long,
     val pageSize: Int,
     val maxIssues: Int = 0,
-    val sortOrder: String = "ASC"
+    val newestFirst: Boolean = true
 ) {
+    val sortOrder: String get() = if (newestFirst) "DESC" else "ASC"
+
     override fun toString(): String =
         "AppConfig(baseUrl=$baseUrl, project=$project, user=$user, token=<redacted>, zone=$zone, output=$output, " +
             "binHours=$binHours, pageSize=$pageSize, maxIssues=$maxIssues, sortOrder=$sortOrder)"
@@ -43,15 +45,16 @@ data class AppConfig(
             val maxIssues = value("jira.maxIssues").ifBlank { "0" }.toIntOrNull()
                 ?: error("jira.maxIssues must be an integer")
             require(maxIssues >= 0) { "jira.maxIssues must be nonnegative (0 means all issues)" }
-            val sortOrder = value("jira.sortOrder").ifBlank { "ASC" }.uppercase()
-            require(sortOrder in setOf("ASC", "DESC")) { "jira.sortOrder must be ASC or DESC" }
+            require(!properties.containsKey("jira.sortOrder")) { "jira.sortOrder was replaced by jira.newestFirst=true or false" }
+            val newestFirst = value("jira.newestFirst").ifBlank { "true" }.toBooleanStrictOrNull()
+                ?: error("jira.newestFirst must be true or false")
             val output = Path.of(value("report.output").ifBlank { "report" })
             return AppConfig(
                 baseUrl, project,
                 environment["JIRA_USER"]?.takeIf(String::isNotBlank) ?: value("jira.user"),
                 environment["JIRA_TOKEN"]?.takeIf(String::isNotBlank) ?: value("jira.token"),
                 ZoneId.of(value("report.zone").ifBlank { "UTC" }), output, binHours, pageSize,
-                maxIssues, sortOrder
+                maxIssues, newestFirst
             )
         }
     }

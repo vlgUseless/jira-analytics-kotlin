@@ -27,4 +27,17 @@ class ConfigTest {
         Files.writeString(path, "jira.baseUrl=https://jira.example.org\njira.project=TEST\njira.maxIssues=-1\n")
         assertFailsWith<IllegalArgumentException> { AppConfig.load(path, emptyMap()) }
     }
+
+    @Test fun `newest first flag selects order and rejects invalid values`() {
+        val path = directory.resolve("app.properties")
+        val base = "jira.baseUrl=https://jira.example.org\njira.project=TEST\n"
+        Files.writeString(path, base + "jira.newestFirst=false\n")
+        assertEquals("ASC", AppConfig.load(path, emptyMap()).sortOrder)
+        Files.writeString(path, base + "jira.newestFirst=true\n")
+        assertEquals("DESC", AppConfig.load(path, emptyMap()).sortOrder)
+        Files.writeString(path, base + "jira.newestFirst=descending\n")
+        assertFailsWith<IllegalStateException> { AppConfig.load(path, emptyMap()) }
+        Files.writeString(path, base + "jira.sortOrder=DESC\n")
+        assertFailsWith<IllegalArgumentException> { AppConfig.load(path, emptyMap()) }
+    }
 }

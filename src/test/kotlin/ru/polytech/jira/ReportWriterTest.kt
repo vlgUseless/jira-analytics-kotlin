@@ -55,7 +55,7 @@ class ReportWriterTest {
         )
         val html = Files.readString(ReportWriter().write(report, "T", directory))
         val chart = html.substringAfter("1. Время от создания до закрытия").substringBefore("</svg>")
-        assertTrue(chart.contains("Ширина обычного интервала: 3 дн."))
+        assertTrue(chart.contains("Длительность, дни"))
         for (boundary in listOf("0", "3", "6", "≥9")) {
             assertTrue(chart.contains(">$boundary</text>"), "Missing boundary $boundary")
         }

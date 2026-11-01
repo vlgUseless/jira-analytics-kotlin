@@ -30,7 +30,7 @@ class JiraClientIntegrationTest {
             assertTrue(jira.searchBodies.all { it.contains("\"expand\":[\"changelog\"]") })
             assertEquals(1, Analyzer(config.zone, 24).analyze(issues).closedCount)
 
-            val preview = JiraClient(config.copy(maxIssues = 1, sortOrder = "DESC")).fetchIssues()
+            val preview = JiraClient(config.copy(maxIssues = 1, newestFirst = true)).fetchIssues()
             assertEquals(1, preview.size)
             assertEquals(3, jira.requests.count { it == "/rest/api/2/search" })
             assertTrue(jira.searchBodies.last().contains("ORDER BY created DESC"))
