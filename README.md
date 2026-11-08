@@ -19,17 +19,27 @@ JDK 22 и сетевой доступ к Jira. Для публичной Apache 
 
 ## Запуск
 
+На macOS с Apple Silicon из корня проекта:
+
+```bash
+bash macos.sh build
+bash macos.sh
+open report/index.html
+```
+
+При первом вызове `macos.sh` скачивает JDK 22 в `runtime/`, проверяет SHA-256 и использует его для Gradle. Системная Java не изменяется. Дополнительные задачи Gradle передаются аргументами, например `bash macos.sh test` или `bash macos.sh distZip`.
+
 Из корня проекта в Windows:
 
 ```powershell
 .\gradlew.bat run --args="config/app.properties"
 ```
 
-В Linux или macOS используйте `./gradlew run --args="config/app.properties"`. После завершения откройте `report/index.html` или `index.html` в каталоге `report.output`.
+При уже выбранном JDK 22 в Linux или macOS используйте `bash gradlew run --args="config/app.properties"`. После завершения откройте `report/index.html` или `index.html` в каталоге `report.output`. Для строгой проверки установленного JDK на macOS используйте `/usr/libexec/java_home -F -v 22`: без `-F` при отсутствии версии 22 утилита может вернуть другую Java.
 
-Тесты запускаются отдельно: `./gradlew.bat test` в Windows или `./gradlew test` в Linux/macOS.
+Тесты запускаются отдельно: `./gradlew.bat test` в Windows или `bash gradlew test` в Linux/macOS.
 
-Для сборки дистрибутива выполните `./gradlew.bat distZip` (или `./gradlew distZip`). Архив появится в `build/distributions/`. После распаковки запускайте `run.bat` в Windows или `./run.sh` в Linux/macOS.
+Для сборки дистрибутива выполните `./gradlew.bat distZip` (или `bash gradlew distZip`). Архив появится в `build/distributions/`. После распаковки запускайте `run.bat` в Windows или `./run.sh` в Linux/macOS.
 
 ## Как считаются данные
 

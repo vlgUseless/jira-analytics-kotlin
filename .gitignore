@@ -6,3 +6,4 @@ bin/
 *.iml
 config/local.properties
 report/
+runtime/
